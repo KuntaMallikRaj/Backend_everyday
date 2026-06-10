@@ -1,0 +1,530 @@
+# REST in Microservices
+
+## Introduction
+
+Microservices have become the preferred architectural style for building modern distributed systems. Companies such as Netflix, Amazon, Uber, and Spotify adopted microservices to scale their applications independently, deploy services faster, and allow teams to work autonomously.
+
+However, breaking a large application into dozens or hundreds of services introduces a new challenge: how do these services communicate with each other?
+
+The answer, in most cases, is REST APIs.
+
+REST (Representational State Transfer) has become the most widely used communication mechanism in microservices because it is simple, language-independent, scalable, and built on top of HTTP. In this article, we will explore REST APIs in microservices, service boundaries, API versioning, the N+1 problem, and HTTP status codes.
+
+---
+
+# What is REST?
+
+REST is an architectural style that enables communication between clients and servers using standard HTTP protocols.
+
+A client sends an HTTP request:
+
+```http
+GET /users/123
+```
+
+The server processes the request and returns a response:
+
+```json
+{
+    "id": 123,
+    "name": "John Doe"
+}
+```
+
+REST uses standard HTTP methods:
+
+| Method | Purpose        |
+| ------ | -------------- |
+| GET    | Retrieve data  |
+| POST   | Create data    |
+| PUT    | Update data    |
+| PATCH  | Partial update |
+| DELETE | Remove data    |
+
+Because HTTP is universally supported, services written in Java, Python, Go, C#, Node.js, or any other language can communicate seamlessly using REST APIs.
+
+---
+
+# REST and Service Boundaries
+
+One of the most important principles in microservices is defining proper service boundaries.
+
+A service boundary determines what a service owns and what functionality it exposes to the outside world.
+
+Consider an e-commerce system.
+
+## User Service
+
+Responsible for:
+
+* User profiles
+* Authentication
+* User preferences
+
+Endpoints:
+
+```http
+GET /users/{id}
+POST /users
+```
+
+## Order Service
+
+Responsible for:
+
+* Orders
+* Payments
+* Invoices
+
+Endpoints:
+
+```http
+GET /orders/{id}
+POST /orders
+```
+
+Each service owns:
+
+* Its business logic
+* Its database
+* Its API contracts
+
+### Bad Design
+
+A common mistake is allowing one service to access another service's database directly.
+
+```text
+Order Service
+      |
+      v
+User Database
+```
+
+This creates tight coupling between services.
+
+Problems include:
+
+* Difficult deployments
+* Security concerns
+* Database schema dependencies
+* Reduced service autonomy
+
+### Good Design
+
+Instead, services should communicate through APIs.
+
+```text
+Order Service
+      |
+      v
+User Service API
+      |
+      v
+User Database
+```
+
+This ensures that each service remains independently deployable and scalable.
+
+A simple rule often followed in microservices is:
+
+**A service owns its data. Other services consume it through APIs, never through direct database access.**
+
+---
+
+# API Versioning in Microservices
+
+As applications evolve, APIs change.
+
+New fields may be introduced, existing fields may be renamed, and response structures may change. Without proper versioning, these modifications can break existing consumers.
+
+Consider Version 1 of an API:
+
+```json
+{
+    "name": "John Doe"
+}
+```
+
+A later version may return:
+
+```json
+{
+    "firstName": "John",
+    "lastName": "Doe"
+}
+```
+
+Existing clients expecting the field "name" will fail.
+
+This is why API versioning is critical.
+
+---
+
+## URI Versioning
+
+The most common strategy.
+
+```http
+/api/v1/users
+/api/v2/users
+```
+
+Advantages:
+
+* Easy to understand
+* Easy routing
+* Easy debugging
+
+Most organizations prefer this approach.
+
+---
+
+## Header Versioning
+
+```http
+Accept-Version: v2
+```
+
+Advantages:
+
+* Cleaner URLs
+
+Disadvantages:
+
+* Harder troubleshooting
+* Less visible during debugging
+
+---
+
+## Query Parameter Versioning
+
+```http
+/users?version=2
+```
+
+Although possible, this approach is generally less popular.
+
+---
+
+## When Should a New Version Be Created?
+
+Not every change requires a new version.
+
+### Breaking Changes
+
+Require a new version.
+
+Examples:
+
+* Renaming fields
+* Removing fields
+* Changing response structure
+* Changing API behavior
+
+### Non-Breaking Changes
+
+Usually do not require a new version.
+
+Examples:
+
+```json
+{
+    "name": "John",
+    "age": 25
+}
+```
+
+Adding optional fields generally remains backward compatible.
+
+A common industry practice is to support older API versions until all consumers have migrated.
+
+---
+
+# The N+1 Problem
+
+One of the most common performance issues in distributed systems is the N+1 problem.
+
+The N+1 problem occurs when a system performs one query to retrieve data and then executes N additional queries to fetch related information.
+
+---
+
+## Database Example
+
+Suppose we retrieve 100 orders.
+
+```sql
+SELECT * FROM orders;
+```
+
+Now for every order:
+
+```sql
+SELECT * FROM users WHERE id = ?;
+```
+
+The total number of queries becomes:
+
+```text
+1 + 100 = 101 queries
+```
+
+This is known as the N+1 problem.
+
+---
+
+## Why Is It Dangerous?
+
+Assume each query takes 5 milliseconds.
+
+```text
+101 × 5ms = 505ms
+```
+
+Half a second is spent only on database access.
+
+As traffic increases, performance degrades rapidly.
+
+For 1000 orders:
+
+```text
+1001 queries
+```
+
+The problem becomes significantly worse.
+
+---
+
+## N+1 in Microservices
+
+The impact becomes even more severe because network calls are much slower than database calls.
+
+Consider:
+
+```text
+Order Service
+      |
+      +----> User Service
+      |
+      +----> User Service
+      |
+      +----> User Service
+```
+
+If 100 orders require user information:
+
+```text
+1 request + 100 downstream service calls
+```
+
+Network latency accumulates quickly.
+
+---
+
+## Solutions
+
+### Use Database Joins
+
+```sql
+SELECT
+o.id,
+u.name
+FROM orders o
+JOIN users u
+ON o.user_id = u.id;
+```
+
+One query instead of hundreds.
+
+---
+
+### Batch Fetching
+
+Instead of:
+
+```http
+GET /users/1
+GET /users/2
+GET /users/3
+```
+
+Use:
+
+```http
+GET /users?ids=1,2,3
+```
+
+A single request retrieves all required data.
+
+---
+
+### Caching
+
+Frequently accessed data can be stored in Redis.
+
+Benefits:
+
+* Lower latency
+* Reduced database load
+* Reduced network traffic
+
+The N+1 problem is one of the most common scalability bottlenecks discussed during system design interviews.
+
+---
+
+# HTTP Status Codes
+
+HTTP status codes help clients understand the outcome of a request.
+
+Proper usage improves debugging, monitoring, and API usability.
+
+---
+
+## Success Codes (2xx)
+
+### 200 OK
+
+Request completed successfully.
+
+```http
+GET /users/1
+```
+
+---
+
+### 201 Created
+
+Resource created successfully.
+
+```http
+POST /users
+```
+
+---
+
+### 204 No Content
+
+Operation succeeded but no response body is returned.
+
+Commonly used for deletions.
+
+```http
+DELETE /users/1
+```
+
+---
+
+## Client Error Codes (4xx)
+
+### 400 Bad Request
+
+Invalid request format or malformed input.
+
+---
+
+### 401 Unauthorized
+
+Authentication is missing or invalid.
+
+---
+
+### 403 Forbidden
+
+User is authenticated but lacks permissions.
+
+---
+
+### 404 Not Found
+
+Requested resource does not exist.
+
+---
+
+### 409 Conflict
+
+Resource conflict.
+
+Example:
+
+```text
+Email already registered
+```
+
+---
+
+### 422 Unprocessable Entity
+
+Validation errors.
+
+Example:
+
+```json
+{
+    "age": -10
+}
+```
+
+---
+
+### 429 Too Many Requests
+
+Rate limit exceeded.
+
+---
+
+## Server Error Codes (5xx)
+
+### 500 Internal Server Error
+
+Unexpected application failure.
+
+Examples:
+
+* Unhandled exceptions
+* Database crashes
+* Runtime failures
+
+---
+
+### 502 Bad Gateway
+
+A gateway received an invalid response from a downstream service.
+
+---
+
+### 503 Service Unavailable
+
+Service is temporarily unavailable.
+
+Examples:
+
+* Maintenance
+* Overloaded servers
+
+---
+
+### 504 Gateway Timeout
+
+A downstream service failed to respond within the configured timeout period.
+
+---
+
+# Best Practices for REST APIs in Microservices
+
+1. Define clear service boundaries.
+2. Never allow services to access another service's database directly.
+3. Version APIs carefully and only for breaking changes.
+4. Avoid N+1 problems using batching and caching.
+5. Return proper HTTP status codes.
+6. Design APIs to be backward compatible whenever possible.
+7. Keep services loosely coupled.
+8. Monitor API latency and error rates continuously.
+
+---
+
+# Conclusion
+
+REST APIs are the backbone of communication in modern microservices architectures. Their simplicity, interoperability, and scalability have made them the industry standard for service-to-service communication.
+
+However, building production-grade REST APIs requires more than exposing endpoints. Engineers must carefully design service boundaries, manage API versions responsibly, prevent N+1 performance issues, and use HTTP status codes correctly.
+
+Organizations that follow these principles build systems that are easier to scale, maintain, and evolve over time. As microservices continue to dominate modern software development, understanding REST and its associated design considerations remains a fundamental skill for every backend and distributed systems engineer.
