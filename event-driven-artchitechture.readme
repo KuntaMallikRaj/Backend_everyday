@@ -1,0 +1,725 @@
+# Event-Driven Architecture (EDA) Patterns in Distributed Systems
+
+## Introduction
+
+As modern applications continue to scale, traditional request-response communication is often insufficient for handling millions of users and real-time data. Businesses require systems that can react instantly to changes, process massive event streams, and remain resilient even when individual services fail.
+
+**Event-Driven Architecture (EDA)** addresses these challenges by enabling services to communicate through **events** instead of direct synchronous calls.
+
+Companies like Netflix, Uber, Amazon, LinkedIn, and Microsoft rely heavily on event-driven architectures to build highly scalable and fault-tolerant systems.
+
+---
+
+# What is an Event?
+
+An **event** represents something that has already happened inside the system.
+
+Examples:
+
+* User registered
+* Payment completed
+* Order placed
+* Product added to cart
+* Flight delayed
+* Sensor temperature exceeded threshold
+* Stock price updated
+
+An event is **immutable**—once created, it should never be modified.
+
+Example:
+
+```json
+{
+  "eventId": "evt-101",
+  "eventType": "OrderPlaced",
+  "orderId": 5001,
+  "customerId": 201,
+  "amount": 850,
+  "timestamp": "2026-07-02T10:45:00Z"
+}
+```
+
+---
+
+# Why Event-Driven Architecture?
+
+Instead of services calling each other directly, services simply publish events.
+
+Any interested service receives those events independently.
+
+Traditional Flow:
+
+```
+Order Service
+      |
+      | REST Call
+      |
+Inventory Service
+      |
+Payment Service
+      |
+Notification Service
+```
+
+One service failure may affect the entire workflow.
+
+---
+
+Event-Driven Flow:
+
+```
+               Event Broker
+                    |
+        -------------------------
+        |        |         |
+ Inventory   Payment   Notification
+      \        |           /
+        OrderPlaced Event
+             ^
+             |
+       Order Service
+```
+
+Services become independent.
+
+---
+
+# Benefits of Event-Driven Architecture
+
+## Loose Coupling
+
+Publishers never need to know who consumes the event.
+
+```
+Order Service
+      |
+Publishes Event
+
+Consumers
+
+Inventory
+Analytics
+Shipping
+Email
+Billing
+Fraud Detection
+```
+
+New consumers can be added without modifying the producer.
+
+---
+
+## Better Scalability
+
+Different services can scale independently.
+
+Example:
+
+```
+100 Orders/sec
+
+Inventory → 2 instances
+
+Analytics → 20 instances
+
+Notification → 5 instances
+```
+
+Each service scales based on workload.
+
+---
+
+## Improved Fault Isolation
+
+Suppose the Email Service crashes.
+
+```
+OrderPlaced Event
+
+Inventory ✔
+
+Payment ✔
+
+Shipping ✔
+
+Email ✘
+```
+
+Other services continue functioning normally.
+
+---
+
+## Asynchronous Processing
+
+Users don't wait for every downstream service.
+
+Instead:
+
+```
+Order Placed
+
+↓
+
+Response Sent to User
+
+↓
+
+Inventory Updates
+
+↓
+
+Email Sent
+
+↓
+
+Analytics Updated
+```
+
+Better user experience.
+
+---
+
+# Core Components of Event-Driven Architecture
+
+## Event Producer
+
+Creates events.
+
+Examples:
+
+* Order Service
+* Payment Service
+* Authentication Service
+
+---
+
+## Event Broker
+
+Responsible for transporting events.
+
+Popular technologies:
+
+* Apache Kafka
+* RabbitMQ
+* Apache Pulsar
+* Amazon EventBridge
+
+---
+
+## Event Consumer
+
+Listens for events.
+
+Example:
+
+```
+PaymentCompleted
+
+↓
+
+Shipping Service
+
+↓
+
+Start Shipment
+```
+
+---
+
+# Common Event-Driven Architecture Patterns
+
+## 1. Event Notification Pattern
+
+The producer only informs other services that something happened.
+
+The event contains minimal information.
+
+```
+Order Service
+
+↓
+
+OrderPlaced
+
+↓
+
+Inventory
+Shipping
+Email
+```
+
+Example Event
+
+```json
+{
+   "event":"OrderPlaced",
+   "orderId":5001
+}
+```
+
+Consumers fetch additional details if needed.
+
+### Advantages
+
+* Small events
+* Low network usage
+* Easy to publish
+
+### Disadvantages
+
+* Extra API calls
+* Can create the N+1 query problem if many consumers fetch details separately
+
+### Best Use Cases
+
+* Notifications
+* User registration
+* Cache invalidation
+* Audit triggers
+
+---
+
+# 2. Event-Carried State Transfer Pattern
+
+Instead of sending only an ID, the producer includes all relevant data required by consumers.
+
+Example
+
+```json
+{
+  "event":"OrderPlaced",
+  "orderId":5001,
+  "customer":"Alice",
+  "items":[...],
+  "address":"New York",
+  "amount":850
+}
+```
+
+Consumers usually do not need additional API calls.
+
+### Advantages
+
+* Faster processing
+* Fewer service dependencies
+* Lower latency
+
+### Disadvantages
+
+* Larger events
+* Data duplication
+* Schema evolution becomes more important
+
+### Best Use Cases
+
+* Analytics
+* Search indexing
+* Data warehouses
+* Reporting systems
+
+---
+
+# 3. Competing Consumers Pattern
+
+Multiple consumers listen to the same queue.
+
+Each event is processed by **only one** consumer.
+
+```
+Queue
+
+ |
+
+-------------------------
+
+|       |        |
+
+W1      W2       W3
+```
+
+Example:
+
+```
+1000 Image Uploads
+
+↓
+
+Queue
+
+↓
+
+10 Image Processing Workers
+```
+
+Each worker processes different jobs.
+
+### Advantages
+
+* Parallel processing
+* Horizontal scaling
+* Better throughput
+
+### Best Use Cases
+
+* Email sending
+* Video encoding
+* Image processing
+* Background jobs
+
+---
+
+# 4. Publish-Subscribe (Pub/Sub) Pattern
+
+One event is delivered to multiple independent subscribers.
+
+```
+OrderPlaced
+
+      |
+
+-------------------------------
+
+|         |          |         |
+
+Inventory Email Analytics Fraud
+```
+
+Every subscriber receives a copy.
+
+### Advantages
+
+* Easy extensibility
+* Loose coupling
+* Independent consumers
+
+### Best Use Cases
+
+* User registration
+* Payment completed
+* Order created
+* Live notifications
+
+---
+
+# 5. Event Sourcing Pattern
+
+Instead of storing only the latest state, the system stores every change as an event.
+
+Traditional Database
+
+```
+Account Balance
+
+₹700
+```
+
+Event Sourcing
+
+```
+Account Created
+
+Deposit ₹1000
+
+Withdraw ₹200
+
+Deposit ₹500
+
+Withdraw ₹600
+```
+
+Current balance is rebuilt by replaying the events.
+
+### Advantages
+
+* Complete audit history
+* Easy debugging
+* Time travel (reconstruct past state)
+* Replay capability
+
+### Disadvantages
+
+* Increased storage
+* More complex design
+* Requires careful versioning of events
+
+### Best Use Cases
+
+* Banking
+* Financial systems
+* Trading platforms
+* Audit-heavy applications
+
+---
+
+# 6. CQRS with Event-Driven Architecture
+
+**CQRS (Command Query Responsibility Segregation)** separates write operations from read operations.
+
+```
+Write API
+
+↓
+
+Event Store
+
+↓
+
+Events
+
+↓
+
+Read Database
+```
+
+Example:
+
+```
+User Places Order
+
+↓
+
+Command Service
+
+↓
+
+OrderPlaced Event
+
+↓
+
+Read Model Updated
+```
+
+Reads become highly optimized while writes remain isolated.
+
+### Advantages
+
+* Independent scaling of reads and writes
+* High performance for read-heavy workloads
+* Flexible data models
+
+### Best Use Cases
+
+* E-commerce
+* Ticket booking
+* Dashboards
+* Reporting systems
+
+---
+
+# 7. Saga Pattern
+
+Long-running business transactions across multiple services cannot use a traditional distributed transaction.
+
+The Saga pattern coordinates them through events and compensating actions.
+
+Example:
+
+```
+Create Order
+
+↓
+
+Reserve Inventory
+
+↓
+
+Charge Payment
+
+↓
+
+Arrange Shipping
+```
+
+If payment fails:
+
+```
+Cancel Shipment
+
+↓
+
+Release Inventory
+
+↓
+
+Mark Order Failed
+```
+
+### Advantages
+
+* Maintains eventual consistency
+* Avoids distributed locks
+* Suitable for microservices
+
+### Best Use Cases
+
+* Travel booking
+* Food delivery
+* Online shopping
+* Banking workflows
+
+---
+
+# 8. Dead Letter Queue (DLQ) Pattern
+
+Some events cannot be processed successfully after multiple retries.
+
+Instead of blocking the queue, they are moved to a **Dead Letter Queue**.
+
+```
+Queue
+
+↓
+
+Consumer
+
+↓
+
+Failure
+
+↓
+
+Retry
+
+↓
+
+Failure
+
+↓
+
+Dead Letter Queue
+```
+
+### Advantages
+
+* Prevents queue blockage
+* Simplifies troubleshooting
+* Preserves failed events for later analysis
+
+### Best Use Cases
+
+* Payment processing
+* Order workflows
+* External API integrations
+
+---
+
+# 9. Request-Reply over Events
+
+Although EDA is asynchronous, sometimes a response is still required.
+
+```
+Client
+
+↓
+
+Request Event
+
+↓
+
+Service
+
+↓
+
+Reply Event
+
+↓
+
+Client
+```
+
+Correlation IDs are used to match requests with responses.
+
+### Best Use Cases
+
+* Inventory availability checks
+* Pricing requests
+* Quote generation
+
+---
+
+# Choosing the Right Pattern
+
+| Pattern                      | Purpose                             | Typical Use Case                                  |
+| ---------------------------- | ----------------------------------- | ------------------------------------------------- |
+| Event Notification           | Notify that something happened      | User registration, cache invalidation             |
+| Event-Carried State Transfer | Share complete event data           | Analytics, reporting, search indexing             |
+| Competing Consumers          | Parallel job processing             | Image processing, email delivery                  |
+| Publish-Subscribe            | Broadcast to many consumers         | Notifications, fraud detection, inventory updates |
+| Event Sourcing               | Persist every state change          | Banking, auditing, financial systems              |
+| CQRS                         | Separate reads from writes          | Dashboards, e-commerce, reporting                 |
+| Saga                         | Coordinate distributed transactions | Booking systems, payment workflows                |
+| Dead Letter Queue            | Handle repeatedly failing events    | Payment failures, integration errors              |
+| Request-Reply                | Asynchronous request/response       | Availability checks, quote services               |
+
+---
+
+# Production Example: Order Processing
+
+Consider an e-commerce platform.
+
+```
+Customer Places Order
+          │
+          ▼
+     Order Service
+          │
+          ▼
+   Publish OrderPlaced Event
+          │
+ ┌────────┼────────┬────────────┬─────────────┐
+ ▼        ▼        ▼            ▼
+Inventory Payment Shipping Analytics
+  │         │        │            │
+Reserve   Charge   Create      Update
+ Stock    Customer Shipment    Dashboard
+  │         │
+  ▼         ▼
+Success?  Success?
+    │        │
+    └─────Yes┴──────────────► Order Completed
+             │
+             ▼
+        Send Email Notification
+```
+
+If payment fails:
+
+1. Payment service publishes a `PaymentFailed` event.
+2. Inventory service releases the reserved stock.
+3. Shipping service cancels shipment creation.
+4. Order service marks the order as failed.
+5. Notification service informs the customer.
+
+This is a practical application of the **Saga pattern** using event-driven communication.
+
+---
+
+# Best Practices
+
+* Design events as immutable records.
+* Include a unique event ID, timestamp, and correlation ID.
+* Make consumers idempotent to safely handle duplicate deliveries.
+* Version event schemas to support evolution without breaking consumers.
+* Use retries with exponential backoff before sending events to a DLQ.
+* Monitor consumer lag, throughput, and processing failures.
+* Avoid putting sensitive or unnecessary data into events.
+* Choose partitions and keys carefully to preserve ordering where required.
+* Retain events long enough to support replay, recovery, and auditing.
+
+---
+
+# Summary
+
+Event-Driven Architecture enables distributed systems to be **loosely coupled, scalable, resilient, and responsive**. Different patterns solve different problems:
+
+* **Event Notification** for lightweight change notifications.
+* **Event-Carried State Transfer** to reduce service-to-service calls.
+* **Competing Consumers** for parallel workload processing.
+* **Publish-Subscribe** for broadcasting events to multiple services.
+* **Event Sourcing** for complete auditability and state reconstruction.
+* **CQRS** for independently optimized read and write models.
+* **Saga** for maintaining consistency across distributed services.
+* **Dead Letter Queue** for isolating unrecoverable failures.
+* **Request-Reply** for asynchronous interactions that still require responses.
+
+In practice, large-scale systems often combine several of these patterns. For example, an e-commerce platform may use **Pub/Sub** for broadcasting order events, **Competing Consumers** for background processing, **Saga** for distributed business transactions, **CQRS** for optimized reads, and **Dead Letter Queues** to safely manage processing failures.
